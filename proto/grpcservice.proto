@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package grpcservice;
+
+service GrpcService {
+  rpc Start (StartRequest) returns (StartResponse) {}
+  rpc Stop (StopRequest) returns (StopResponse) {}
+}
+
+message StartRequest {
+	string message = 1;
+}
+
+message StartResponse {
+	string result = 1;
+}
+
+message StopRequest {
+	string id = 1;
+}
+  
+message StopResponse {
+	string result = 1;
+}

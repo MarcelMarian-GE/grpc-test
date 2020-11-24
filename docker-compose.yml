@@ -1,0 +1,40 @@
+version: "3"
+
+services:
+    send-app:
+        build:
+            context: ./
+            dockerfile: Dockerfile
+            args:
+              http_proxy: $http_proxy
+              https_proxy: $http_proxy
+              no_proxy: $no_proxy
+        image: "testgrpc"
+        networks:
+            - predix-edge-broker_net
+        # environment:
+        #     config: "/config/config.json"
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 50M
+        command: ["/testSend"]
+        depends_on:
+            - "recv-app"
+    recv-app:
+        image: "testgrpc"
+        # environment:
+        #     config: "/config/config.json"
+        networks:
+            - predix-edge-broker_net
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 50M
+        command: ["/testRecv"]
+
+networks:
+  predix-edge-broker_net:
+    external: true
