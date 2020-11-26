@@ -5,6 +5,7 @@ package grpcservice;
 service GrpcService {
   rpc Start (StartRequest) returns (StartResponse) {}
   rpc Stop (StopRequest) returns (StopResponse) {}
+  rpc TransferFile(stream FileChunk) returns (FileProgress) {}
 }
 
 message StartRequest {
@@ -21,4 +22,16 @@ message StopRequest {
   
 message StopResponse {
 	string result = 1;
+}
+
+message FileChunk {
+	string filename = 1;
+	bytes packet = 2;
+	int32 byteCount = 3;
+	bool more = 4;
+}
+
+message FileProgress {
+	string filename = 1;
+	int32 bytesTransfered = 2;
 }
