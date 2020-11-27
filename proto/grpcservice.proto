@@ -5,7 +5,8 @@ package grpcservice;
 service GrpcService {
   rpc Start (StartRequest) returns (StartResponse) {}
   rpc Stop (StopRequest) returns (StopResponse) {}
-  rpc TransferFile(stream FileChunk) returns (FileProgress) {}
+  rpc PutFile(stream FileChunk) returns (FileProgress) {}
+  rpc GetFile(FileProgress) returns (stream FileChunk) {}
 }
 
 message StartRequest {
