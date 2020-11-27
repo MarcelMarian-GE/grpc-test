@@ -4,7 +4,6 @@ import (
 	context "context"
 	"fmt"
 	grpcSrv "grpcservice"
-	"io"
 	"log"
 	"net"
 	"net/url"
@@ -49,31 +48,26 @@ func (s *GrpcServiceServer) Stop(ctx context.Context, req *grpcSrv.StopRequest) 
 }
 
 func (s *GrpcServiceServer) TransferFile(stream grpcSrv.GrpcService_TransferFileServer) error {
-	log.Println("TransferFile request processing")
 	var chunkCount int32
+	// var lastChunk *grpcSrv.FileChunk
+	var resp grpcSrv.FileProgress
 
 	client.Publish("testTopic/1", 0, false, "Testing MQTT: TransferFile")
-	return stream.SendAndClose(&grpcSrv.FileProgress{
-		Filename:        "TestFileName",
-		BytesTransfered: 100,
-	})
-	startTime := time.Now()
+	chunkCount = 1
 	for {
 		chunk, err := stream.Recv()
-		log.Println("TransferFile request processing: ", chunk.Filename)
-		if err == io.EOF {
-			endTime := time.Now()
-			return stream.SendAndClose(&grpcSrv.FileProgress{
-				Filename:        "TestFileName",
-				BytesTransfered: int32(endTime.Sub(startTime).Seconds()),
-			})
-		}
 		if err != nil {
+			log.Println("Transfer File Error")
 			return err
+		}
+		resp.Filename = chunk.Filename
+		resp.BytesTransfered = chunk.ByteCount
+		if chunk.More == false {
+			log.Println("TransferFile request processing: filename =", chunk.Filename, "#bytes =", chunk.ByteCount)
+			return stream.SendAndClose(&resp)
 		}
 		chunkCount++
 	}
-	return nil
 }
 
 func mqttConnect(clientId string, uri *url.URL) mqtt.Client {

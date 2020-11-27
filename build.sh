@@ -8,7 +8,7 @@ MQTT_PATH=$GOPATH_SRC$MQTT_MODULE
 GRPC_PATH=$GOPATH_SRC$GRPC_MODULE
 GRPC_SRV=testGrpcServer
 GRPC_CLI=testGrpcClient
-MQTT_SRV=mqttApp
+MQTT_APP=mqttApp
 
 # Show the script usage
 usage() {
@@ -24,6 +24,7 @@ clean () {
   rm -rf proto/*.pb.*
   rm -rf $GRPC_SRV
   rm -rf $GRPC_CLI
+  rm -rf $MQTT_APP
   rm -rf *.tar
   rm -rf *.tar.gz
   rm -rf *.zip
@@ -83,11 +84,11 @@ build_cmd () {
 
     go build $GRPC_SRV.go
     go build $GRPC_CLI.go
-    go build $MQTT_SRV.go
+    go build $MQTT_APP.go
 
     chmod +x $GRPC_SRV
     chmod +x $GRPC_CLI
-    chmod +x $MQTT_SRV
+    chmod +x $MQTT_APP
 }
 
 parse_args "$@"

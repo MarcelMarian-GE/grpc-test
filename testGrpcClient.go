@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func runGrpcFileTransfer(client grpcSrv.GrpcServiceClient) {
+func runGrpcFileTransfer(client grpcSrv.GrpcServiceClient, filename string) {
 	var chunksCount int = 10
 	var fileChunks []*grpcSrv.FileChunk
 	var arr []byte
@@ -29,11 +29,14 @@ func runGrpcFileTransfer(client grpcSrv.GrpcServiceClient) {
 	}
 
 	for i := 0; i < chunksCount; i++ {
-		req := grpcSrv.FileChunk{
-			Filename:  "TestFilename",
-			Packet:    arr,
-			ByteCount: 10,
-			More:      true,
+		var req grpcSrv.FileChunk
+		req.Filename = filename
+		req.Packet = arr
+		req.ByteCount = 10
+		if i < 9 {
+			req.More = true
+		} else {
+			req.More = false
 		}
 		fileChunks = append(fileChunks, &req)
 	}
@@ -46,7 +49,7 @@ func runGrpcFileTransfer(client grpcSrv.GrpcServiceClient) {
 	if err != nil {
 		log.Fatalf("%v.CloseAndRecv() got error %v, want %v", stream, err, nil)
 	}
-	log.Printf("Route summary: %v", reply)
+	log.Printf("FileTransfer: filename=\"%s\", bytes = %d", reply.Filename, reply.BytesTransfered)
 }
 
 func initSignalHandle() {
@@ -77,7 +80,7 @@ func main() {
 	var j int32 = 0
 	for {
 		// gRPC client testing loop
-		runGrpcFileTransfer(cli)
+		runGrpcFileTransfer(cli, "TestFileNmae")
 		if j%2 == 0 {
 			// Sending Start command
 			startResp, err := cli.Start(context.Background(), &startRequest)
