@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	context "context"
 	"fmt"
 	"log"
@@ -9,80 +10,101 @@ import (
 	"syscall"
 	"time"
 
-	grpcSrv "grpcservice"
+	grpcInterface "grpcservice"
 
 	"google.golang.org/grpc"
 )
 
-func runGrpcFilePut(client grpcSrv.GrpcServiceClient, filename string) {
-	var chunksCount int = 10
-	var fileChunks []*grpcSrv.FileChunk
-	arr := []byte("Here is a string....")
-
-	// Create a random number of random points
+func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, destFilename string) {
+	// Check if file exists
+	f, err := os.Open(srcFilename)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() {
+		if err = f.Close(); err != nil {
+			log.Println(err)
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	stream, err := client.PutFile(ctx)
 	if err != nil {
 		log.Fatalf("%v.PutFile(_) = _, %v", client, err)
 	}
-
-	// Simulate the file reading
-	for i := 0; i < chunksCount; i++ {
-		var req grpcSrv.FileChunk
-		req.Filename = filename
-		req.Packet = arr
-		if i < 9 {
-			req.ByteCount = 999
-			req.More = true
+	// File reading and streaming
+	r := bufio.NewReader(f)
+	b := make([]byte, 256)
+	fileLen := 0
+	for {
+		var chunk grpcInterface.FileChunk
+		chunk.Filename = destFilename
+		n, err := r.Read(b)
+		if err != nil {
+			break
 		} else {
-			req.ByteCount = 9
-			req.More = false
-		}
-		fileChunks = append(fileChunks, &req)
-	}
-	// Simulate the file sending
-	for _, chunk := range fileChunks {
-		if err := stream.Send(chunk); err != nil {
-			log.Fatalf("%v.Send(%v) = %v", stream, chunk, err)
+			chunk.Packet = b[:n]
+			chunk.ByteCount = int32(n)
+			if err := stream.Send(&chunk); err != nil {
+				log.Fatalf("%v.Send(%v) = %v", stream, chunk, err)
+				break
+			}
+			fileLen += n
 		}
 	}
 	reply, err := stream.CloseAndRecv()
 	if err != nil {
 		log.Fatalf("%v.CloseAndRecv() got error %v, want %v", stream, err, nil)
 	}
-	log.Printf("FilePut: filename=\"%s\", bytes = %d", reply.Filename, reply.BytesTransfered)
+	reply.Filename = destFilename
+	reply.BytesTransfered = int32(fileLen)
+	log.Printf("Response: FilePut - filename=\"%s\", bytes = %d", reply.Filename, reply.BytesTransfered)
 }
 
-func runGrpcFileGet(client grpcSrv.GrpcServiceClient, filename string) {
-	var req grpcSrv.FileProgress
-	var fileChunks []*grpcSrv.FileChunk
+func runGrpcFileGet(client grpcInterface.GrpcServiceClient, srcFilename string, destFilename string) {
+	var req grpcInterface.FileProgress
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req.Filename = filename
+	req.Filename = srcFilename
 	stream, err := client.GetFile(ctx, &req)
 	if err != nil {
 		log.Fatalf("%v.GetFile(_) = _, %v", client, err)
 	}
 
 	fileLen := 0
+	// Prepare a local file to save it
+	f, err := os.OpenFile(destFilename, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer func() {
+		if err = f.Close(); err != nil {
+			log.Println(err)
+		}
+		log.Println("Closing file:", destFilename, fileLen)
+	}()
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
 			log.Println("GetFile Error")
 			break
 		}
-		fileChunks = append(fileChunks, chunk)
-		fileLen += int(chunk.ByteCount)
-		if chunk.More == false {
+		// Save to local file
+		if chunk.ByteCount != 0 {
+			chunk.Packet = chunk.Packet[:chunk.ByteCount]
+			if _, err := f.Write(chunk.Packet); err != nil {
+				log.Fatal(err)
+			}
+		} else {
 			break
 		}
+		fileLen += int(chunk.ByteCount)
 	}
-	req.BytesTransfered = int32(fileLen)
-	log.Println("GetFile request: filename =", req.Filename, "#bytes =", req.BytesTransfered)
-	// fmt.Printf("len=%d cap=%d %v\n", len(fileChunks), cap(fileChunks), fileChunks)
+	log.Println("GetFile request: srcFilename =", srcFilename, "#bytes =", fileLen)
 }
 
 func initSignalHandle() {
@@ -107,9 +129,9 @@ func main() {
 		log.Fatal(err)
 	}
 	defer conn.Close()
-	startRequest := grpcSrv.StartRequest{Message: "Start!"}
-	stopRequest := grpcSrv.StopRequest{Id: "Stop!"}
-	cli := grpcSrv.NewGrpcServiceClient(conn)
+	startRequest := grpcInterface.StartRequest{Message: "Start!"}
+	stopRequest := grpcInterface.StopRequest{Id: "Stop!"}
+	cli := grpcInterface.NewGrpcServiceClient(conn)
 	var j int32 = 0
 	// gRPC client testing loop
 	for {
@@ -120,7 +142,7 @@ func main() {
 				log.Fatalf("Error when calling Start function: %s", err)
 			}
 			log.Printf("Response: %s", startResp.Result)
-			runGrpcFilePut(cli, "TestFileNamePut")
+			runGrpcFilePut(cli, "tmp/client/client.log", "tmp/server/test.log")
 		} else {
 			// Sending Stop command
 			stopResp, err := cli.Stop(context.Background(), &stopRequest)
@@ -128,7 +150,7 @@ func main() {
 				log.Fatalf("Error when calling Start function: %s", err)
 			}
 			log.Printf("Response: %s", stopResp.Result)
-			runGrpcFileGet(cli, "TestFileNameGet")
+			runGrpcFileGet(cli, "tmp/server/test.txt", "tmp/client/client.log")
 		}
 		j = j + 1
 		time.Sleep(1 * time.Second)

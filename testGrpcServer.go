@@ -1,10 +1,11 @@
 package main
 
 import (
+	"bufio"
 	context "context"
 	"fmt"
+
 	grpcInterface "grpcservice"
-	grpcSrv "grpcservice"
 	"log"
 	"net"
 	"net/url"
@@ -37,14 +38,22 @@ func initSignalHandle() {
 	}()
 }
 
+func check(e error) {
+	if e != nil {
+		log.Println(e)
+	}
+}
+
 func (s *GrpcServiceServer) Start(ctx context.Context, req *grpcInterface.StartRequest) (*grpcInterface.StartResponse, error) {
 	log.Println("Start request processing: ", req.Message)
+	// Forward notification to mqtt
 	client.Publish("testTopic/1", 0, false, "Testing MQTT: Start")
 	return &grpcInterface.StartResponse{Result: "Start"}, nil
 }
 
 func (s *GrpcServiceServer) Stop(ctx context.Context, req *grpcInterface.StopRequest) (*grpcInterface.StopResponse, error) {
 	log.Println("Stop request processing: ", req.Id)
+	// Forward notification to mqtt
 	client.Publish("testTopic/1", 0, false, "Testing MQTT: Stop")
 	return &grpcInterface.StopResponse{Result: "Stop"}, nil
 }
@@ -52,54 +61,81 @@ func (s *GrpcServiceServer) Stop(ctx context.Context, req *grpcInterface.StopReq
 func (s *GrpcServiceServer) PutFile(stream grpcInterface.GrpcService_PutFileServer) error {
 	var resp grpcInterface.FileProgress
 	var fileLen int32
+	var f *os.File
+	var fileOpened bool = false
 
-	// Forward the notification over mqtt
-	client.Publish("testTopic/1", 0, false, "Testing MQTT: PutFile")
-
-	// Receive the file content and append it to a slice
-	fileLen = 0
+	// Prepare a local file to save it
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
-			log.Println("Transfer File Error")
-			return err
+			log.Println("GetFile Error")
+			break
+		}
+		resp.Filename = chunk.Filename
+		if !fileOpened {
+			f, err = os.OpenFile(resp.Filename, os.O_CREATE|os.O_RDWR, 0644)
+			fileOpened = true
+		}
+		// Save to local file
+		if chunk.ByteCount != 0 {
+			chunk.Packet = chunk.Packet[:chunk.ByteCount]
+			if _, err := f.Write(chunk.Packet); err != nil {
+				log.Fatal(err)
+			}
+		} else {
+			// Close the file and exit
+			if err = f.Close(); err != nil {
+				log.Println(err)
+			}
+			log.Println("Closing file:", resp.Filename, fileLen)
+			break
 		}
 		fileLen += chunk.ByteCount
-		if chunk.More == false {
-			resp.Filename = chunk.Filename
-			resp.BytesTransfered = fileLen
-			log.Println("PutFile request processing: filename =", resp.Filename, "#bytes =", resp.BytesTransfered)
-			return stream.SendAndClose(&resp)
-		}
 	}
+	resp.BytesTransfered = fileLen
+	log.Println("PutFile request: Filename =", resp.Filename, "#bytes =", resp.BytesTransfered)
+	// Forward notification to mqtt
+	client.Publish("testTopic/1", 0, false, "Testing MQTT: PutFile")
+
+	return stream.SendAndClose(&resp)
 }
 
 func (s *GrpcServiceServer) GetFile(req *grpcInterface.FileProgress, stream grpcInterface.GrpcService_GetFileServer) error {
-	var fileChunks []*grpcSrv.FileChunk
-
-	// Simulate the file reading
-	for i := 0; i < 10; i++ {
-		var chunk grpcSrv.FileChunk
-		chunk.Filename = req.Filename
-		chunk.Packet = []byte("Here is another string....")
-		if i < 9 {
-			chunk.ByteCount = int32(len(chunk.Packet))
-			chunk.More = true
-		} else {
-			chunk.ByteCount = 11
-			chunk.More = false
-		}
-		fileChunks = append(fileChunks, &chunk)
-	}
-	// Simulate the file sending
 	fileLen := 0
-	for _, chunk := range fileChunks {
-		if err := stream.Send(chunk); err != nil {
-			log.Fatalf("%v.Send(%v) = %v", stream, chunk, err)
-		}
-		fileLen += int(chunk.ByteCount)
+	// Check if file exists
+	f, err := os.Open(req.Filename)
+	if err != nil {
+		fmt.Println(err)
+		return nil
 	}
+	defer func() {
+		if err = f.Close(); err != nil {
+			log.Println(err)
+		}
+	}()
+	// Read from the local file
+	r := bufio.NewReader(f)
+	b := make([]byte, 256)
+	for {
+		var chunk grpcInterface.FileChunk
+		chunk.Filename = req.Filename
+		n, err := r.Read(b)
+		if err != nil {
+			break
+		} else {
+			chunk.Packet = b[:n]
+			fileLen += n
+			chunk.ByteCount = int32(n)
+			if err := stream.Send(&chunk); err != nil {
+				log.Fatalf("%v.Send(%v) = %v", stream, chunk, err)
+				break
+			}
+		}
+	}
+
 	log.Printf("GetFile: filename=\"%s\", bytes = %d", req.Filename, fileLen)
+	// Forward the notification over mqtt
+	client.Publish("testTopic/1", 0, false, "Testing MQTT: GetFile")
 	return nil
 }
 

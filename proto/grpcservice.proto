@@ -29,7 +29,6 @@ message FileChunk {
 	string filename = 1;
 	bytes packet = 2;
 	int32 byteCount = 3;
-	bool more = 4;
 }
 
 message FileProgress {
