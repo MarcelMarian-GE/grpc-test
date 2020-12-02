@@ -68,7 +68,7 @@ func (s *GrpcServiceServer) PutFile(stream grpcInterface.GrpcService_PutFileServ
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
-			log.Println("GetFile Error")
+			log.Println("GetFile:", err)
 			break
 		}
 		resp.Filename = chunk.Filename

@@ -15,6 +15,15 @@ import (
 	"google.golang.org/grpc"
 )
 
+func startGrpcClient() (*grpc.ClientConn, error) {
+	opts := grpc.WithInsecure()
+	conn, err := grpc.Dial("localhost:50051", opts)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return conn, err
+}
+
 func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, destFilename string) {
 	// Check if file exists
 	f, err := os.Open(srcFilename)
@@ -90,14 +99,14 @@ func runGrpcFileGet(client grpcInterface.GrpcServiceClient, srcFilename string, 
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
-			log.Println("GetFile Error")
+			log.Println("GetFile:", err)
 			break
 		}
 		// Save to local file
 		if chunk.ByteCount != 0 {
 			chunk.Packet = chunk.Packet[:chunk.ByteCount]
 			if _, err := f.Write(chunk.Packet); err != nil {
-				log.Fatal(err)
+				log.Println(err)
 			}
 		} else {
 			break
@@ -123,12 +132,17 @@ func main() {
 	initSignalHandle()
 
 	// gRPC client initialization
-	opts := grpc.WithInsecure()
-	conn, err := grpc.Dial("localhost:50051", opts)
+	conn, err := startGrpcClient()
 	if err != nil {
-		log.Fatal(err)
+		log.Println("cannot connect to the server")
+		return
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Println(err)
+		}
+	}()
+
 	startRequest := grpcInterface.StartRequest{Message: "Start!"}
 	stopRequest := grpcInterface.StopRequest{Id: "Stop!"}
 	cli := grpcInterface.NewGrpcServiceClient(conn)

@@ -9,6 +9,8 @@ GRPC_PATH=$GOPATH_SRC$GRPC_MODULE
 GRPC_SRV=testGrpcServer
 GRPC_CLI=testGrpcClient
 MQTT_APP=mqttApp
+TEST_FILE_PUT="tmp/server/test.log"
+TEST_FILE_GET="tmp/client/client.log"
 
 # Show the script usage
 usage() {
@@ -25,6 +27,8 @@ clean () {
   rm -rf $GRPC_SRV
   rm -rf $GRPC_CLI
   rm -rf $MQTT_APP
+  rm -rf $TEST_FILE_PUT
+  rm -rf $TEST_FILE_GET
   rm -rf *.tar
   rm -rf *.tar.gz
   rm -rf *.zip
