@@ -31,7 +31,7 @@ var f mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
 func main() {
 	initSignalHandle()
 
-	opts := mqtt.NewClientOptions().AddBroker("tcp://172.18.0.2:1883")
+	opts := mqtt.NewClientOptions().AddBroker("tcp://predix-edge-broker:1883")
 	opts.SetClientID("mac-go")
 	opts.SetDefaultPublishHandler(f)
 	topic := "testTopic/1"

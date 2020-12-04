@@ -1,7 +1,11 @@
 version: "3"
 
 services:
-    send-app:
+    predix-edge-broker:
+        image: "toke/mosquitto"
+        networks:
+            - predix-edge-broker_net
+    grpc-server-app:
         build:
             context: ./
             dockerfile: Dockerfile
@@ -12,17 +16,15 @@ services:
         image: "testgrpc"
         networks:
             - predix-edge-broker_net
-        # environment:
-        #     config: "/config/config.json"
         deploy:
             resources:
                 limits:
                     cpus: '0.5'
                     memory: 50M
-        command: ["/testSend"]
+        command: ["/testGrpcServer"]
         depends_on:
-            - "recv-app"
-    recv-app:
+            - "predix-edge-broker"
+    grpc-client-app:
         image: "testgrpc"
         # environment:
         #     config: "/config/config.json"
@@ -33,7 +35,25 @@ services:
                 limits:
                     cpus: '0.5'
                     memory: 50M
-        command: ["/testRecv"]
+        networks:
+            - predix-edge-broker_net
+        depends_on:
+            - "grpc-server-app"
+        command: ["/testGrpcClient"]
+    mqtt-app:
+        image: "testgrpc"
+        networks:
+            - predix-edge-broker_net
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 50M
+        networks:
+            - predix-edge-broker_net
+        depends_on:
+            - "grpc-server-app"
+        command: ["/mqttApp"]
 
 networks:
   predix-edge-broker_net:

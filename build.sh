@@ -1,11 +1,11 @@
 #!/bin/sh
 
 PROJDIR=$PWD
-GOPATH_SRC=~/go/src/
+GOPATH_SRC=/go/src
 MQTT_MODULE=mqttapi
 GRPC_MODULE=grpcservice
-MQTT_PATH=$GOPATH_SRC$MQTT_MODULE
-GRPC_PATH=$GOPATH_SRC$GRPC_MODULE
+MQTT_PATH=$GOPATH_SRC/$MQTT_MODULE/
+GRPC_PATH=$GOPATH_SRC/$GRPC_MODULE/
 GRPC_SRV=testGrpcServer
 GRPC_CLI=testGrpcClient
 MQTT_APP=mqttApp
@@ -69,6 +69,7 @@ process_cmd () {
 build_cmd () {
     cd proto
 
+    echo "Compiling the proto files"
     protoc --go_out=. $MQTT_MODULE.proto
     protoc --go_out=plugins=grpc:. $GRPC_MODULE.proto
     if [ ! -d $MQTT_PATH ]
@@ -86,14 +87,16 @@ build_cmd () {
 
     cd $PROJDIR
 
-    go build $GRPC_SRV.go
-    go build $GRPC_CLI.go
-    go build $MQTT_APP.go
+    CGO_ENABLED=0  go build -ldflags="-extldflags=-static" $GRPC_SRV.go
+    CGO_ENABLED=0  go build -ldflags="-extldflags=-static" $GRPC_CLI.go
+    CGO_ENABLED=0  go build -ldflags="-extldflags=-static" $MQTT_APP.go
 
     chmod +x $GRPC_SRV
     chmod +x $GRPC_CLI
     chmod +x $MQTT_APP
 }
+
+echo "GOPATH = $GOROOT"
 
 parse_args "$@"
 process_cmd

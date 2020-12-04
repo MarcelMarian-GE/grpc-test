@@ -17,11 +17,17 @@ import (
 
 func startGrpcClient() (*grpc.ClientConn, error) {
 	opts := grpc.WithInsecure()
-	conn, err := grpc.Dial("localhost:50051", opts)
+	conn, err := grpc.Dial("grpc-server-app:50051", opts)
 	if err != nil {
 		log.Fatal(err)
 	}
 	return conn, err
+}
+
+func shutdownCli(conn *grpc.ClientConn) {
+	if err := conn.Close(); err != nil {
+		log.Println(err)
+	}
 }
 
 func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, destFilename string) {
@@ -131,17 +137,14 @@ func main() {
 	fmt.Println("gRPC client client application")
 	initSignalHandle()
 
+	time.Sleep(10 * time.Second)
 	// gRPC client initialization
 	conn, err := startGrpcClient()
 	if err != nil {
 		log.Println("cannot connect to the server")
 		return
 	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			log.Println(err)
-		}
-	}()
+	defer shutdownCli(conn)
 
 	startRequest := grpcInterface.StartRequest{Message: "Start!"}
 	stopRequest := grpcInterface.StopRequest{Id: "Stop!"}
@@ -156,7 +159,7 @@ func main() {
 				log.Fatalf("Error when calling Start function: %s", err)
 			}
 			log.Printf("Response: %s", startResp.Result)
-			runGrpcFilePut(cli, "tmp/client/client.log", "tmp/server/test.log")
+			runGrpcFilePut(cli, "client.log", "test.log")
 		} else {
 			// Sending Stop command
 			stopResp, err := cli.Stop(context.Background(), &stopRequest)
@@ -164,7 +167,7 @@ func main() {
 				log.Fatalf("Error when calling Start function: %s", err)
 			}
 			log.Printf("Response: %s", stopResp.Result)
-			runGrpcFileGet(cli, "tmp/server/test.txt", "tmp/client/client.log")
+			runGrpcFileGet(cli, "test.txt", "client.log")
 		}
 		j = j + 1
 		time.Sleep(1 * time.Second)

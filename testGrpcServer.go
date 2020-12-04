@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	context "context"
+	"flag"
 	"fmt"
 
 	grpcInterface "grpcservice"
@@ -16,9 +17,15 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
-	"google.golang.org/grpc"
+	// "github.com/aws/aws-sdk-go/aws"
+	// "github.com/aws/aws-sdk-go/aws/awserr"
+	// "github.com/aws/aws-sdk-go/aws/request"
+
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 type GrpcServiceServer struct {
@@ -108,12 +115,13 @@ func (s *GrpcServiceServer) GetFile(req *grpcInterface.FileProgress, stream grpc
 		fmt.Println(err)
 		return nil
 	}
+	// Close the file once done with it
 	defer func() {
 		if err = f.Close(); err != nil {
 			log.Println(err)
 		}
 	}()
-	// Read from the local file
+	// Read chunks from the local file and stream these over gRPC
 	r := bufio.NewReader(f)
 	b := make([]byte, 256)
 	for {
@@ -140,7 +148,7 @@ func (s *GrpcServiceServer) GetFile(req *grpcInterface.FileProgress, stream grpc
 }
 
 func startGrpcServer() {
-	listener, err := net.Listen("tcp", "localhost:50051")
+	listener, err := net.Listen("tcp", "grpc-server-app:50051")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -174,9 +182,78 @@ func mqttCreateClientOptions(clientId string, uri *url.URL) *mqtt.ClientOptions 
 	return opts
 }
 
+func initializeMinio(bucket, key string, timeout time.Duration) error {
+	flag.Parse()
+	sess := session.Must(session.NewSession())
+	svc := s3.New(sess)
+	if svc == nil {
+		log.Fatalf("Failed to create the session for minio")
+	}
+	// Create a context with a timeout that will abort the upload if it takes
+	// more than the passed in timeout.
+	ctx := context.Background()
+	// Ensure the context is canceled to prevent leaking.
+	// See context package for more information, https://golang.org/pkg/context/
+	defer func() {
+		if timeout > 0 {
+			ctx, _ = context.WithTimeout(ctx, timeout)
+		}
+	}()
+	return nil
+}
+
+func fileUpload() {
+	// // Uploads the object to S3. The Context will interrupt the request if the
+	// // timeout expires.
+	// _, err := svc.PutObjectWithContext(ctx, &s3.PutObjectInput{
+	// 	Bucket: aws.String(bucket),
+	// 	Key:    aws.String(key),
+	// 	Body:   os.Stdin,
+	// })
+	// if err != nil {
+	// 	if aerr, ok := err.(awserr.Error); ok && aerr.Code() == request.CanceledErrorCode {
+	// 		// If the SDK can determine the request or retry delay was canceled
+	// 		// by a context the CanceledErrorCode error code will be returned.
+	// 		fmt.Fprintf(os.Stderr, "upload canceled due to timeout, %v\n", err)
+	// 	} else {
+	// 		fmt.Fprintf(os.Stderr, "failed to upload object, %v\n", err)
+	// 	}
+	// 	os.Exit(1)
+	// }
+
+	// fmt.Printf("successfully uploaded file to %s/%s\n", bucket, key)
+}
+
 func main() {
+	var err error
+	var bucket, key string
+	var timeout time.Duration
+
+	flag.StringVar(&bucket, "b", "", "Bucket name.")
+	flag.StringVar(&key, "k", "", "Object key name.")
+	flag.DurationVar(&timeout, "d", 0, "Upload timeout.")
+	flag.Parse()
+
 	initSignalHandle()
 	fmt.Println("gRPC server application")
+
+	err = initializeMinio(bucket, key, timeout)
+	// // Initialize s3 interface
+	// sess := session.Must(session.NewSession())
+	// svc := s3.New(sess)
+	// if svc == nil {
+	// 	log.Fatalf("Failed to create the session for minio")
+	// }
+	// // Create a context with a timeout that will abort the upload if it takes
+	// // more than the passed in timeout.
+	// ctx := context.Background()
+	// // Ensure the context is canceled to prevent leaking.
+	// // See context package for more information, https://golang.org/pkg/context/
+	// defer func() {
+	// 	if timeout > 0 {
+	// 		ctx, _ = context.WithTimeout(ctx, timeout)
+	// 	}
+	// }()
 
 	uri, err := url.Parse("mqtt://172.18.0.2:1883/testTopic")
 	if err != nil {
