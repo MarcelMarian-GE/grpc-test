@@ -255,7 +255,7 @@ func main() {
 	// 	}
 	// }()
 
-	uri, err := url.Parse("mqtt://172.18.0.2:1883/testTopic")
+	uri, err := url.Parse("mqtt://predix-edge-broker:1883/testTopic")
 	if err != nil {
 		log.Fatalf("failed to parse url: %v", err)
 	}

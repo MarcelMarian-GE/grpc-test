@@ -137,7 +137,7 @@ func main() {
 	fmt.Println("gRPC client client application")
 	initSignalHandle()
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(5 * time.Second)
 	// gRPC client initialization
 	conn, err := startGrpcClient()
 	if err != nil {
