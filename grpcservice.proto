@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package grpcservice;
 
+option go_package = "example.com/grpcservice";
+
 service GrpcService {
   rpc Start (StartRequest) returns (StartResponse) {}
   rpc Stop (StopRequest) returns (StopResponse) {}

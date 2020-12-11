@@ -4,13 +4,16 @@ ARG APPDIR=src/grpctest
 
 RUN apk update && apk add git protoc gcc libc-dev
 
+RUN export GO111MODULE=on
 # Install mqtt
 RUN go get github.com/eclipse/paho.mqtt.golang
 # Install protobuf compiler packages
 RUN go get github.com/golang/protobuf/protoc-gen-go
 RUN go get -u google.golang.org/grpc
 RUN go get golang.org/x/net/context
-RUN go get github.com/aws/aws-sdk-go
+# RUN go get github.com/aws/aws-sdk-go
+RUN	GO111MODULE=on go get github.com/minio/minio-go/v7
+RUN	GO111MODULE=on go get github.com/minio/minio-go/v7/pkg/credentials
 
 #RUN cp bin/protoc-gen-go /bin/
 
@@ -25,6 +28,7 @@ COPY --from=builder go/src/grpctest/testGrpcServer ./
 COPY --from=builder go/src/grpctest/testGrpcClient ./
 COPY --from=builder go/src/grpctest/mqttApp ./
 COPY ./tmp/server/test.txt ./
+COPY ./tmp/server/mynodered.tar ./
 WORKDIR ./
 
 RUN chmod ug+x testGrpcServer

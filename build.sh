@@ -1,16 +1,15 @@
 #!/bin/sh
 
 PROJDIR=$PWD
-GOPATH_SRC=/go/src
+PROTO_BASE=example.com
+PROJ_NAME=grpctest
 MQTT_MODULE=mqttapi
 GRPC_MODULE=grpcservice
-MQTT_PATH=$GOPATH_SRC/$MQTT_MODULE/
-GRPC_PATH=$GOPATH_SRC/$GRPC_MODULE/
 GRPC_SRV=testGrpcServer
 GRPC_CLI=testGrpcClient
 MQTT_APP=mqttApp
-TEST_FILE_PUT="tmp/server/test.log"
-TEST_FILE_GET="tmp/client/client.log"
+TEST_FILE_PUT="tmp/server/mynodered1.tar"
+TEST_FILE_GET="tmp/client/mynodered.tar"
 
 # Show the script usage
 usage() {
@@ -24,6 +23,7 @@ clean () {
   echo "Cleanup..."
   rm -rf *.pb.*
   rm -rf proto/*.pb.*
+  rm -rf $PROTO_BASE/
   rm -rf $GRPC_SRV
   rm -rf $GRPC_CLI
   rm -rf $MQTT_APP
@@ -67,25 +67,19 @@ process_cmd () {
 }
 
 build_cmd () {
-    cd proto
-
     echo "Compiling the proto files"
     protoc --go_out=. $MQTT_MODULE.proto
     protoc --go_out=plugins=grpc:. $GRPC_MODULE.proto
-    if [ ! -d $MQTT_PATH ]
-    then
-        echo "Creating dir $MQTT_PATH"
-        mkdir $MQTT_PATH
-    fi
-    if [ ! -d $GRPC_PATH ]
-    then
-        echo "Creating dir $GRPC_PATH"
-        mkdir $GRPC_PATH
-    fi
-    cp $MQTT_MODULE.pb.go $MQTT_PATH
-    cp $GRPC_MODULE.pb.go $GRPC_PATH
 
+    cd $PROTO_BASE/$GRPC_MODULE
+    go mod init "$PROTO_BASE/$GRPC_MODULE"
     cd $PROJDIR
+    cd $PROTO_BASE/$MQTT_MODULE
+    go mod init "$PROTO_BASE/$MQTT_MODULE"
+    cd $PROJDIR
+    go mod init "$PROTO_BASE/$PROJ_NAME"
+    # go build
+    # sed -e 's|{"go 1.13"}|{"go 1.14"}|g' go.mod > go.mod1
 
     CGO_ENABLED=0  go build -ldflags="-extldflags=-static" $GRPC_SRV.go
     CGO_ENABLED=0  go build -ldflags="-extldflags=-static" $GRPC_CLI.go
@@ -98,5 +92,6 @@ build_cmd () {
 
 echo "GOPATH = $GOROOT"
 
+export GO111MODULE=on
 parse_args "$@"
 process_cmd

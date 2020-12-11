@@ -4,13 +4,14 @@ import (
 	"bufio"
 	context "context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	grpcInterface "grpcservice"
+	grpcInterface "example.com/grpcservice"
 
 	"google.golang.org/grpc"
 )
@@ -42,7 +43,7 @@ func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, 
 			log.Println(err)
 		}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	stream, err := client.PutFile(ctx)
 	if err != nil {
@@ -52,6 +53,7 @@ func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, 
 	r := bufio.NewReader(f)
 	b := make([]byte, 256)
 	fileLen := 0
+	t0 := time.Now()
 	for {
 		var chunk grpcInterface.FileChunk
 		chunk.Filename = destFilename
@@ -68,19 +70,20 @@ func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, 
 			fileLen += n
 		}
 	}
+	t1 := time.Now()
 	reply, err := stream.CloseAndRecv()
 	if err != nil {
 		log.Fatalf("%v.CloseAndRecv() got error %v, want %v", stream, err, nil)
 	}
 	reply.Filename = destFilename
 	reply.BytesTransfered = int32(fileLen)
-	log.Printf("Response: FilePut - filename=\"%s\", bytes = %d", reply.Filename, reply.BytesTransfered)
+	log.Printf("Response: FilePut - filename=\"%s\", len = %d, took %v", reply.Filename, reply.BytesTransfered, t1.Sub(t0))
 }
 
 func runGrpcFileGet(client grpcInterface.GrpcServiceClient, srcFilename string, destFilename string) {
 	var req grpcInterface.FileProgress
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	req.Filename = srcFilename
@@ -100,12 +103,14 @@ func runGrpcFileGet(client grpcInterface.GrpcServiceClient, srcFilename string, 
 		if err = f.Close(); err != nil {
 			log.Println(err)
 		}
-		log.Println("Closing file:", destFilename, fileLen)
 	}()
+	t0 := time.Now()
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
-			log.Println("GetFile:", err)
+			if err != io.EOF {
+				log.Println("GetFile:", err)
+			}
 			break
 		}
 		// Save to local file
@@ -119,7 +124,8 @@ func runGrpcFileGet(client grpcInterface.GrpcServiceClient, srcFilename string, 
 		}
 		fileLen += int(chunk.ByteCount)
 	}
-	log.Println("GetFile request: srcFilename =", srcFilename, "#bytes =", fileLen)
+	t1 := time.Now()
+	log.Printf("GetFile request: srcFilename = \"%s\", len = %d, took = %v sec", srcFilename, fileLen, t1.Sub(t0))
 }
 
 func initSignalHandle() {
@@ -152,22 +158,28 @@ func main() {
 	var j int32 = 0
 	// gRPC client testing loop
 	for {
-		if j%2 == 0 {
+		switch j % 4 {
+		case 0:
 			// Sending Start command
 			startResp, err := cli.Start(context.Background(), &startRequest)
 			if err != nil {
 				log.Fatalf("Error when calling Start function: %s", err)
 			}
 			log.Printf("Response: %s", startResp.Result)
-			runGrpcFilePut(cli, "client.log", "test.log")
-		} else {
+		case 1:
 			// Sending Stop command
 			stopResp, err := cli.Stop(context.Background(), &stopRequest)
 			if err != nil {
 				log.Fatalf("Error when calling Start function: %s", err)
 			}
 			log.Printf("Response: %s", stopResp.Result)
-			runGrpcFileGet(cli, "test.txt", "client.log")
+		case 2:
+			runGrpcFilePut(cli, "test.txt", "test.log")
+		case 3:
+			runGrpcFileGet(cli, "test.txt", "test.log")
+		default:
+			log.Printf("Unknown command")
+
 		}
 		j = j + 1
 		time.Sleep(1 * time.Second)

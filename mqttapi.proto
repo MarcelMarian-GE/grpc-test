@@ -1,6 +1,7 @@
 syntax = "proto3";
 
-package mqttapi;
+package main;
+option go_package = "example.com/mqttapi";
 
 // function/opcodes codes
 enum EnumOpcode {

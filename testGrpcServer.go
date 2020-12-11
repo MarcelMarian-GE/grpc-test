@@ -5,34 +5,37 @@ import (
 	context "context"
 	"flag"
 	"fmt"
+	"io"
 
-	grpcInterface "grpcservice"
 	"log"
 	"net"
 	"net/url"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
-	// "github.com/aws/aws-sdk-go/aws"
-	// "github.com/aws/aws-sdk-go/aws/awserr"
-	// "github.com/aws/aws-sdk-go/aws/request"
+	grpcInterface "example.com/grpcservice"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 type GrpcServiceServer struct {
 }
 
-var wg = new(sync.WaitGroup)
-var client mqtt.Client
+var mqttClient mqtt.Client
+var endpoint = "minio1:9000"
+var accessKeyID = "minio"
+
+// var secretAccessKey = "cFV^+7/85KFr-ws]"
+var secretAccessKey = "minio123"
+var useSSL = false
+var minioClient *minio.Client
 
 func initSignalHandle() {
 	ch := make(chan os.Signal)
@@ -54,14 +57,14 @@ func check(e error) {
 func (s *GrpcServiceServer) Start(ctx context.Context, req *grpcInterface.StartRequest) (*grpcInterface.StartResponse, error) {
 	log.Println("Start request processing: ", req.Message)
 	// Forward notification to mqtt
-	client.Publish("testTopic/1", 0, false, "Testing MQTT: Start")
+	mqttClient.Publish("testTopic/1", 0, false, "Testing MQTT: Start")
 	return &grpcInterface.StartResponse{Result: "Start"}, nil
 }
 
 func (s *GrpcServiceServer) Stop(ctx context.Context, req *grpcInterface.StopRequest) (*grpcInterface.StopResponse, error) {
 	log.Println("Stop request processing: ", req.Id)
 	// Forward notification to mqtt
-	client.Publish("testTopic/1", 0, false, "Testing MQTT: Stop")
+	mqttClient.Publish("testTopic/1", 0, false, "Testing MQTT: Stop")
 	return &grpcInterface.StopResponse{Result: "Stop"}, nil
 }
 
@@ -72,10 +75,13 @@ func (s *GrpcServiceServer) PutFile(stream grpcInterface.GrpcService_PutFileServ
 	var fileOpened bool = false
 
 	// Prepare a local file to save it
+	t0 := time.Now()
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
-			log.Println("GetFile:", err)
+			if err != io.EOF {
+				log.Println("PutFile:", err)
+			}
 			break
 		}
 		resp.Filename = chunk.Filename
@@ -87,7 +93,7 @@ func (s *GrpcServiceServer) PutFile(stream grpcInterface.GrpcService_PutFileServ
 		if chunk.ByteCount != 0 {
 			chunk.Packet = chunk.Packet[:chunk.ByteCount]
 			if _, err := f.Write(chunk.Packet); err != nil {
-				log.Fatal(err)
+				log.Println(err)
 			}
 		} else {
 			// Close the file and exit
@@ -99,10 +105,14 @@ func (s *GrpcServiceServer) PutFile(stream grpcInterface.GrpcService_PutFileServ
 		}
 		fileLen += chunk.ByteCount
 	}
+	t1 := time.Now()
+
+	// fileUpload(minioClient, minioCtx, "data1", resp.Filename)
+
 	resp.BytesTransfered = fileLen
-	log.Println("PutFile request: Filename =", resp.Filename, "#bytes =", resp.BytesTransfered)
+	log.Printf("PutFile: filename=\"%s\", bytes = %d, took %v sec", resp.Filename, resp.BytesTransfered, t1.Sub(t0))
 	// Forward notification to mqtt
-	client.Publish("testTopic/1", 0, false, "Testing MQTT: PutFile")
+	mqttClient.Publish("testTopic/1", 0, false, "Testing MQTT: PutFile")
 
 	return stream.SendAndClose(&resp)
 }
@@ -112,18 +122,19 @@ func (s *GrpcServiceServer) GetFile(req *grpcInterface.FileProgress, stream grpc
 	// Check if file exists
 	f, err := os.Open(req.Filename)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("GetFile:", err)
 		return nil
 	}
 	// Close the file once done with it
 	defer func() {
 		if err = f.Close(); err != nil {
-			log.Println(err)
+			fmt.Println("GetFile:", err)
 		}
 	}()
 	// Read chunks from the local file and stream these over gRPC
 	r := bufio.NewReader(f)
 	b := make([]byte, 256)
+	t0 := time.Now()
 	for {
 		var chunk grpcInterface.FileChunk
 		chunk.Filename = req.Filename
@@ -140,10 +151,11 @@ func (s *GrpcServiceServer) GetFile(req *grpcInterface.FileProgress, stream grpc
 			}
 		}
 	}
+	t1 := time.Now()
 
-	log.Printf("GetFile: filename=\"%s\", bytes = %d", req.Filename, fileLen)
+	log.Printf("GetFile: filename=\"%s\", bytes = %d, took %v sec", req.Filename, fileLen, t1.Sub(t0))
 	// Forward the notification over mqtt
-	client.Publish("testTopic/1", 0, false, "Testing MQTT: GetFile")
+	mqttClient.Publish("testTopic/1", 0, false, "Testing MQTT: GetFile")
 	return nil
 }
 
@@ -163,7 +175,11 @@ func startGrpcServer() {
 	grpcServer.Serve(listener)
 }
 
-func mqttConnect(clientId string, uri *url.URL) mqtt.Client {
+func mqttConnect(clientId string, mqttUrl string) mqtt.Client {
+	uri, err := url.Parse(mqttUrl)
+	if err != nil {
+		log.Fatalf("failed to parse url: %v", err)
+	}
 	opts := mqttCreateClientOptions(clientId, uri)
 	client := mqtt.NewClient(opts)
 	token := client.Connect()
@@ -182,84 +198,73 @@ func mqttCreateClientOptions(clientId string, uri *url.URL) *mqtt.ClientOptions 
 	return opts
 }
 
-func initializeMinio(bucket, key string, timeout time.Duration) error {
-	flag.Parse()
-	sess := session.Must(session.NewSession())
-	svc := s3.New(sess)
-	if svc == nil {
-		log.Fatalf("Failed to create the session for minio")
-	}
-	// Create a context with a timeout that will abort the upload if it takes
-	// more than the passed in timeout.
+func initMinioClient() {
+
+	// Initialize minio client object.
+	minioClient, _ = minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Secure: useSSL,
+	})
+
+}
+
+func makeBucket(bucketName string) error {
+
 	ctx := context.Background()
-	// Ensure the context is canceled to prevent leaking.
-	// See context package for more information, https://golang.org/pkg/context/
-	defer func() {
-		if timeout > 0 {
-			ctx, _ = context.WithTimeout(ctx, timeout)
+
+	location := "default"
+
+	err := minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})
+	if err != nil {
+		// Check to see if there is this bucket
+		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
+		if errBucketExists == nil && exists {
+			fmt.Println("We already own %s\n", bucketName)
+		} else {
+			fmt.Println(err)
 		}
-	}()
+	} else {
+		fmt.Println("Successfully created %s\n", bucketName)
+	}
+
+	return err
+
+}
+
+func putObject(objectName, bucketName, filePath string) error {
+
+	// contentType := "application/zip"
+	// ctx := context.Background()
+
+	// Upload the zip file with FPutObject
+	// fmt.Println("Successfully uploaded %s of size %d\n", objectName, n)
+
 	return nil
+
 }
-
-func fileUpload() {
-	// // Uploads the object to S3. The Context will interrupt the request if the
-	// // timeout expires.
-	// _, err := svc.PutObjectWithContext(ctx, &s3.PutObjectInput{
-	// 	Bucket: aws.String(bucket),
-	// 	Key:    aws.String(key),
-	// 	Body:   os.Stdin,
-	// })
-	// if err != nil {
-	// 	if aerr, ok := err.(awserr.Error); ok && aerr.Code() == request.CanceledErrorCode {
-	// 		// If the SDK can determine the request or retry delay was canceled
-	// 		// by a context the CanceledErrorCode error code will be returned.
-	// 		fmt.Fprintf(os.Stderr, "upload canceled due to timeout, %v\n", err)
-	// 	} else {
-	// 		fmt.Fprintf(os.Stderr, "failed to upload object, %v\n", err)
-	// 	}
-	// 	os.Exit(1)
-	// }
-
-	// fmt.Printf("successfully uploaded file to %s/%s\n", bucket, key)
-}
-
 func main() {
-	var err error
-	var bucket, key string
-	var timeout time.Duration
+	var bucket, key, mqttUrl string
+	var minioTout time.Duration
 
-	flag.StringVar(&bucket, "b", "", "Bucket name.")
-	flag.StringVar(&key, "k", "", "Object key name.")
-	flag.DurationVar(&timeout, "d", 0, "Upload timeout.")
+	flag.StringVar(&bucket, "data", "", "Bucket name.")
+	flag.StringVar(&key, "key", "", "Object key name.")
+	flag.DurationVar(&minioTout, "duration", 0, "Upload timeout.")
+	flag.StringVar(&mqttUrl, "mqttUrl", "mqtt://predix-edge-broker:1883/testTopic", "MQTT broker URL")
 	flag.Parse()
 
 	initSignalHandle()
 	fmt.Println("gRPC server application")
 
-	err = initializeMinio(bucket, key, timeout)
-	// // Initialize s3 interface
-	// sess := session.Must(session.NewSession())
-	// svc := s3.New(sess)
-	// if svc == nil {
-	// 	log.Fatalf("Failed to create the session for minio")
-	// }
-	// // Create a context with a timeout that will abort the upload if it takes
-	// // more than the passed in timeout.
-	// ctx := context.Background()
-	// // Ensure the context is canceled to prevent leaking.
-	// // See context package for more information, https://golang.org/pkg/context/
-	// defer func() {
-	// 	if timeout > 0 {
-	// 		ctx, _ = context.WithTimeout(ctx, timeout)
-	// 	}
-	// }()
+	// // Initialize minio client
+	// minioClient, minioCtx = initializeMinio(minioTout)
+	// createBucket(minioClient, "data1")
 
-	uri, err := url.Parse("mqtt://predix-edge-broker:1883/testTopic")
-	if err != nil {
-		log.Fatalf("failed to parse url: %v", err)
-	}
-	client = mqttConnect("pub", uri)
+	// Initialize minio client
+	initMinioClient()
+	makeBucket("data1")
 
+	// Initialize mqtt client
+	mqttClient = mqttConnect("pub", mqttUrl)
+	// Initialize gRPC interface
 	startGrpcServer()
 }
