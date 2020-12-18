@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package grpcservice;
 
-option go_package = "example.com/grpcservice";
+option go_package = "testgrpc.com/grpcservice";
 
 service GrpcService {
   rpc Start (StartRequest) returns (StartResponse) {}

@@ -1,7 +1,15 @@
-module example.com/grpctest
+module testgrpc.com/grpctest
 
 go 1.13
 
-replace example.com/grpcservice => ./example.com/grpcservice
+replace testgrpc.com/grpcservice => ./testgrpc.com/grpcservice
 
-replace example.com/mqttapi => ./example.com/mqttapi
+replace testgrpc.com/mqttapi => ./testgrpc.com/mqttapi
+
+require (
+	github.com/eclipse/paho.mqtt.golang v1.3.0
+	github.com/gogo/protobuf v1.3.1
+	github.com/minio/minio-go/v7 v7.0.6
+	google.golang.org/grpc v1.34.0
+	google.golang.org/protobuf v1.25.0
+)

@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	grpcInterface "example.com/grpcservice"
+	grpcInterface "testgrpc.com/grpcservice"
 
 	"google.golang.org/grpc"
 )
@@ -20,7 +20,7 @@ func startGrpcClient() (*grpc.ClientConn, error) {
 	opts := grpc.WithInsecure()
 	conn, err := grpc.Dial("grpc-server-app:50051", opts)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 	return conn, err
 }
@@ -51,7 +51,7 @@ func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, 
 	}
 	// File reading and streaming
 	r := bufio.NewReader(f)
-	b := make([]byte, 256)
+	b := make([]byte, 1024)
 	fileLen := 0
 	t0 := time.Now()
 	for {
@@ -125,7 +125,23 @@ func runGrpcFileGet(client grpcInterface.GrpcServiceClient, srcFilename string, 
 		fileLen += int(chunk.ByteCount)
 	}
 	t1 := time.Now()
-	log.Printf("GetFile request: srcFilename = \"%s\", len = %d, took = %v sec", srcFilename, fileLen, t1.Sub(t0))
+	log.Printf("GetFile request: srcFilename = \"%s\", len = %d, took = %v\n", srcFilename, fileLen, t1.Sub(t0))
+}
+
+func createTestFile(destFilename string, size int) {
+	f, err := os.Create(destFilename)
+	defer f.Close()
+
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	for i := 0; i < size; i++ {
+		buff := []byte("The quick brown fox jumps over the lazy dog.\n")
+		if _, err := f.Write(buff); err != nil {
+			log.Println(err)
+		}
+	}
 }
 
 func initSignalHandle() {
@@ -140,15 +156,24 @@ func initSignalHandle() {
 }
 
 func main() {
-	fmt.Println("gRPC client client application")
+	testFilename := "test.txt"
+	remoteFilename := "test.log"
+	var conn *grpc.ClientConn = nil
+	var err error = nil
+
+	fmt.Println("Starting gRPC client client application")
 	initSignalHandle()
 
 	time.Sleep(5 * time.Second)
 	// gRPC client initialization
-	conn, err := startGrpcClient()
-	if err != nil {
-		log.Println("cannot connect to the server")
-		return
+	for {
+		conn, err = startGrpcClient()
+		if err != nil {
+			time.Sleep(1 * time.Second)
+		} else {
+			log.Printf("Connected to the server app\n")
+			break
+		}
 	}
 	defer shutdownCli(conn)
 
@@ -156,6 +181,8 @@ func main() {
 	stopRequest := grpcInterface.StopRequest{Id: "Stop!"}
 	cli := grpcInterface.NewGrpcServiceClient(conn)
 	var j int32 = 0
+	// Create a test file
+	createTestFile(testFilename, 300000)
 	// gRPC client testing loop
 	for {
 		switch j % 4 {
@@ -174,9 +201,9 @@ func main() {
 			}
 			log.Printf("Response: %s", stopResp.Result)
 		case 2:
-			runGrpcFilePut(cli, "test.txt", "test.log")
+			runGrpcFilePut(cli, testFilename, remoteFilename)
 		case 3:
-			runGrpcFileGet(cli, "test.txt", "test.log")
+			runGrpcFileGet(cli, remoteFilename, remoteFilename)
 		default:
 			log.Printf("Unknown command")
 

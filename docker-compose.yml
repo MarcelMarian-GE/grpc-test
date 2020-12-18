@@ -1,30 +1,6 @@
 version: "3"
 
 services:
-    minio1:
-        image: minio/minio:RELEASE.2020-12-03T05-49-24Z
-        # volumes:
-        #   - data1-1:/data1
-        #   - data1-2:/data2
-        expose:
-            - "9000"
-        environment:
-            MINIO_ACCESS_KEY: minio
-            MINIO_SECRET_KEY: minio123
-        ports:
-        - '9000:9000'
-        networks:
-            - predix-edge-broker_net
-        command: server /data
-        # healthcheck:
-        #     test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-        #     interval: 30s
-        #     timeout: 20s
-        #     retries: 3
-    predix-edge-broker:
-        image: "toke/mosquitto"
-        networks:
-            - predix-edge-broker_net
     grpc-server-app:
         build:
             context: ./
@@ -34,22 +10,28 @@ services:
               https_proxy: $http_proxy
               no_proxy: $no_proxy
         image: "testgrpc"
-        networks:
-            - predix-edge-broker_net
-        deploy:
-            resources:
-                limits:
-                    cpus: '0.5'
-                    memory: 50M
-        command: ["/testGrpcServer"]
-        depends_on:
-            - "predix-edge-broker"
-    grpc-client-app:
-        image: "testgrpc"
         # environment:
         #     config: "/config/config.json"
+        depends_on:
+            - "predix-edge-broker"
+            - "minio1"
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.20'
+                    memory: 150M
         networks:
             - predix-edge-broker_net
+        command: ["/testGrpcServer"]
+    grpc-client-app:
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.20'
+                    memory: 150M
+        image: "testgrpc"
+        # depends_on:
+        #     - "grpc-server-app"
         deploy:
             resources:
                 limits:
@@ -57,23 +39,40 @@ services:
                     memory: 50M
         networks:
             - predix-edge-broker_net
-        depends_on:
-            - "grpc-server-app"
         command: ["/testGrpcClient"]
     mqtt-app:
         image: "testgrpc"
-        networks:
-            - predix-edge-broker_net
+        depends_on:
+            - "grpc-server-app"
         deploy:
             resources:
                 limits:
-                    cpus: '0.5'
+                    cpus: '0.1'
                     memory: 50M
         networks:
             - predix-edge-broker_net
-        depends_on:
-            - "grpc-server-app"
         command: ["/mqttApp"]
+    minio1:
+        image: minio/minio:RELEASE.2020-12-03T05-49-24Z
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.20'
+                    memory: 150M
+        environment:
+            MINIO_ACCESS_KEY: minio
+            MINIO_SECRET_KEY: minio123
+        ports:
+        - '9000:9000'
+        expose:
+            - "9000"
+        networks:
+            - predix-edge-broker_net
+        command: server /data
+    predix-edge-broker:
+        image: "toke/mosquitto"
+        networks:
+            - predix-edge-broker_net
 
 networks:
   predix-edge-broker_net:

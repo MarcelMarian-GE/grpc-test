@@ -11,7 +11,6 @@ RUN go get github.com/eclipse/paho.mqtt.golang
 RUN go get github.com/golang/protobuf/protoc-gen-go
 RUN go get -u google.golang.org/grpc
 RUN go get golang.org/x/net/context
-# RUN go get github.com/aws/aws-sdk-go
 RUN	GO111MODULE=on go get github.com/minio/minio-go/v7
 RUN	GO111MODULE=on go get github.com/minio/minio-go/v7/pkg/credentials
 
@@ -27,8 +26,8 @@ FROM amd64/alpine:3.11
 COPY --from=builder go/src/grpctest/testGrpcServer ./
 COPY --from=builder go/src/grpctest/testGrpcClient ./
 COPY --from=builder go/src/grpctest/mqttApp ./
-COPY ./tmp/server/test.txt ./
-COPY ./tmp/server/mynodered.tar ./
+# COPY ./tmp/server/test.txt ./
+# COPY ./tmp/server/mynodered.tar ./
 WORKDIR ./
 
 RUN chmod ug+x testGrpcServer

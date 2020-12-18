@@ -1,19 +1,19 @@
 syntax = "proto3";
 
 package main;
-option go_package = "example.com/mqttapi";
+option go_package = "testgrpc.com/mqttapi";
 
 // function/opcodes codes
 enum EnumOpcode {
   START = 0;
   STOP = 1;
-  GET = 2;
-  SET = 3;
+  PUTFILE = 2;
+  GETFILE = 3;
 }
 
 // Generic API request
 message GenericReqMsg {
-  int32 opcode = 1;
+  EnumOpcode opcode = 1;
   int32 seqno = 2;
   bytes params = 3;
 }
@@ -21,9 +21,9 @@ message GenericReqMsg {
 
 // Messages containing function arguments for specific opcodes
 // opcode = START
-message SartMsg {
-  string start_param1 = 1;
-  int32  start_param2 = 2;
+message StartMsg {
+  string startparam1 = 1;
+  int32  startparam2 = 2;
 }
 
 // opcode = STOP
@@ -33,19 +33,19 @@ message StopMsg {
 
 // opcode = SET
 message SetMsg {
-  int32  set_param = 1;
+  int32  setparam = 1;
 }
 
 // opcode = GET
 message GetMsg {
-  string get_param = 1;
+  string getparam = 1;
 }
 
 // The API response
 message GenericRespMsg {
-  int32 opcode = 1;
+  EnumOpcode opcode = 1;
   int32 seqno = 2;
-  bytes data = 4;
+  bytes data = 3;
 }
 
 // response for opcode = START, STOP, SET

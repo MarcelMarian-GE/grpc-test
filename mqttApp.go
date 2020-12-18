@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -8,7 +9,12 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	proto "google.golang.org/protobuf/proto"
+	mqttInterface "testgrpc.com/mqttapi"
 )
+
+var _ = proto.Unmarshal
+var _ = mqttInterface.GenericReqMsg{}
 
 func initSignalHandle() {
 	ch := make(chan os.Signal)
@@ -22,8 +28,37 @@ func initSignalHandle() {
 }
 
 var f mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
-	log.Printf("MSG: %s\n", msg.Payload())
-	// text := log.Sprintf("this is result msg #%d!", knt)
+	data := msg.Payload()
+	genericRecvMsg := &mqttInterface.GenericReqMsg{}
+	err := proto.Unmarshal(data, genericRecvMsg)
+	if err != nil {
+		log.Println("Unmarshaling ERROR: ", err, data)
+	} else {
+		switch genericRecvMsg.Opcode {
+		case mqttInterface.EnumOpcode_START:
+			startRecvMsg := &mqttInterface.StartMsg{}
+			proto.Unmarshal(genericRecvMsg.Params, startRecvMsg)
+			if err != nil {
+				log.Println("Unmarshaling ERROR: ", err, data)
+			} else {
+				fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno, startRecvMsg.Startparam1, startRecvMsg.Startparam2)
+			}
+		case mqttInterface.EnumOpcode_STOP:
+			stopRecvMsg := &mqttInterface.StopMsg{}
+			proto.Unmarshal(genericRecvMsg.Params, stopRecvMsg)
+			if err != nil {
+				log.Println("Unmarshaling ERROR: ", err, data)
+			} else {
+				fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno, stopRecvMsg.StopParam)
+			}
+		case mqttInterface.EnumOpcode_PUTFILE:
+			fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno)
+		case mqttInterface.EnumOpcode_GETFILE:
+			fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno)
+		}
+		// fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno, genericRecvMsg.Params)
+	}
+
 	token := client.Publish("testTopic/2", 0, false, "mqtt response")
 	token.Wait()
 }
@@ -38,14 +73,18 @@ func main() {
 
 	opts.OnConnect = func(c mqtt.Client) {
 		if token := c.Subscribe(topic, 0, f); token.Wait() && token.Error() != nil {
-			panic(token.Error())
+			log.Println(token.Error())
 		}
 	}
 	client := mqtt.NewClient(opts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
-	} else {
-		log.Printf("Connected to server\n")
+	// Try to connect to the broker
+	for {
+		if token := client.Connect(); token.Wait() && token.Error() != nil {
+			time.Sleep(1 * time.Second)
+		} else {
+			log.Printf("Connected to broker\n")
+			break
+		}
 	}
 	for {
 		time.Sleep(2000 * time.Millisecond)

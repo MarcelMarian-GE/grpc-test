@@ -17,13 +17,18 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
+	proto "google.golang.org/protobuf/proto"
 
-	grpcInterface "example.com/grpcservice"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	grpcInterface "testgrpc.com/grpcservice"
+	mqttInterface "testgrpc.com/mqttapi"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
+
+var _ = proto.Marshal
+var _ = mqttInterface.GenericReqMsg{}
 
 type GrpcServiceServer struct {
 }
@@ -54,17 +59,60 @@ func check(e error) {
 	}
 }
 
+var seqNo int32 = 0
+
 func (s *GrpcServiceServer) Start(ctx context.Context, req *grpcInterface.StartRequest) (*grpcInterface.StartResponse, error) {
+	// Test protobuf marshaling
+	startMsg := &mqttInterface.StartMsg{
+		Startparam1: "Start Parameter_1",
+		Startparam2: 1,
+	}
+	params, _ := proto.Marshal(startMsg)
+
+	mqttGenReq := &mqttInterface.GenericReqMsg{
+		Opcode: mqttInterface.EnumOpcode_START,
+		Seqno:  seqNo,
+		Params: params,
+	}
+	data, err := proto.Marshal(mqttGenReq)
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Forward the notification over mqtt
+	token := mqttClient.Publish("testTopic/1", 0, false, data)
+	token.Wait()
+
+	seqNo++
 	log.Println("Start request processing: ", req.Message)
-	// Forward notification to mqtt
-	mqttClient.Publish("testTopic/1", 0, false, "Testing MQTT: Start")
+
 	return &grpcInterface.StartResponse{Result: "Start"}, nil
 }
 
 func (s *GrpcServiceServer) Stop(ctx context.Context, req *grpcInterface.StopRequest) (*grpcInterface.StopResponse, error) {
+	// Test protobuf marshaling
+	stopMsg := &mqttInterface.StopMsg{
+		StopParam: 2,
+	}
+	params, _ := proto.Marshal(stopMsg)
+
+	mqttGenReq := &mqttInterface.GenericReqMsg{
+		Opcode: mqttInterface.EnumOpcode_STOP,
+		Seqno:  seqNo,
+		Params: params,
+	}
+	data, err := proto.Marshal(mqttGenReq)
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Forward the notification over mqtt
+	token := mqttClient.Publish("testTopic/1", 0, false, data)
+	token.Wait()
+
+	seqNo++
 	log.Println("Stop request processing: ", req.Id)
-	// Forward notification to mqtt
-	mqttClient.Publish("testTopic/1", 0, false, "Testing MQTT: Stop")
+
 	return &grpcInterface.StopResponse{Result: "Stop"}, nil
 }
 
@@ -107,12 +155,24 @@ func (s *GrpcServiceServer) PutFile(stream grpcInterface.GrpcService_PutFileServ
 	}
 	t1 := time.Now()
 
-	// fileUpload(minioClient, minioCtx, "data1", resp.Filename)
-
+	putObject("data1", resp.Filename, resp.Filename)
 	resp.BytesTransfered = fileLen
-	log.Printf("PutFile: filename=\"%s\", bytes = %d, took %v sec", resp.Filename, resp.BytesTransfered, t1.Sub(t0))
-	// Forward notification to mqtt
-	mqttClient.Publish("testTopic/1", 0, false, "Testing MQTT: PutFile")
+	log.Printf("PutFile: filename=\"%s\", bytes = %d, took %v\n", resp.Filename, resp.BytesTransfered, t1.Sub(t0))
+
+	// Forward the notification over mqtt
+	mqttGenReq := &mqttInterface.GenericReqMsg{
+		Opcode: mqttInterface.EnumOpcode_PUTFILE,
+		Seqno:  seqNo,
+		// Params: params,
+	}
+	data, err := proto.Marshal(mqttGenReq)
+	if err != nil {
+		log.Println(err)
+	}
+	token := mqttClient.Publish("testTopic/1", 0, false, data)
+	token.Wait()
+
+	seqNo++
 
 	return stream.SendAndClose(&resp)
 }
@@ -120,6 +180,7 @@ func (s *GrpcServiceServer) PutFile(stream grpcInterface.GrpcService_PutFileServ
 func (s *GrpcServiceServer) GetFile(req *grpcInterface.FileProgress, stream grpcInterface.GrpcService_GetFileServer) error {
 	fileLen := 0
 	// Check if file exists
+	getObject("data1", req.Filename, req.Filename)
 	f, err := os.Open(req.Filename)
 	if err != nil {
 		fmt.Println("GetFile:", err)
@@ -133,7 +194,7 @@ func (s *GrpcServiceServer) GetFile(req *grpcInterface.FileProgress, stream grpc
 	}()
 	// Read chunks from the local file and stream these over gRPC
 	r := bufio.NewReader(f)
-	b := make([]byte, 256)
+	b := make([]byte, 1024)
 	t0 := time.Now()
 	for {
 		var chunk grpcInterface.FileChunk
@@ -152,10 +213,22 @@ func (s *GrpcServiceServer) GetFile(req *grpcInterface.FileProgress, stream grpc
 		}
 	}
 	t1 := time.Now()
+	log.Printf("GetFile: filename=\"%s\", bytes = %d, took %v\n", req.Filename, fileLen, t1.Sub(t0))
 
-	log.Printf("GetFile: filename=\"%s\", bytes = %d, took %v sec", req.Filename, fileLen, t1.Sub(t0))
 	// Forward the notification over mqtt
-	mqttClient.Publish("testTopic/1", 0, false, "Testing MQTT: GetFile")
+	mqttGenReq := &mqttInterface.GenericReqMsg{
+		Opcode: mqttInterface.EnumOpcode_GETFILE,
+		Seqno:  seqNo,
+	}
+	data, err := proto.Marshal(mqttGenReq)
+	if err != nil {
+		log.Println(err)
+	}
+	token := mqttClient.Publish("testTopic/1", 0, false, data)
+	token.Wait()
+
+	seqNo++
+
 	return nil
 }
 
@@ -175,10 +248,10 @@ func startGrpcServer() {
 	grpcServer.Serve(listener)
 }
 
-func mqttConnect(clientId string, mqttUrl string) mqtt.Client {
+func mqttConnect(clientId string, mqttUrl string) (mqtt.Client, error) {
 	uri, err := url.Parse(mqttUrl)
 	if err != nil {
-		log.Fatalf("failed to parse url: %v", err)
+		log.Println("failed to parse url: %v", err)
 	}
 	opts := mqttCreateClientOptions(clientId, uri)
 	client := mqtt.NewClient(opts)
@@ -186,9 +259,9 @@ func mqttConnect(clientId string, mqttUrl string) mqtt.Client {
 	for !token.WaitTimeout(3 * time.Second) {
 	}
 	if err := token.Error(); err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
-	return client
+	return client, err
 }
 
 func mqttCreateClientOptions(clientId string, uri *url.URL) *mqtt.ClientOptions {
@@ -198,20 +271,18 @@ func mqttCreateClientOptions(clientId string, uri *url.URL) *mqtt.ClientOptions 
 	return opts
 }
 
-func initMinioClient() {
-
+func initMinioClient() error {
+	var err error = nil
 	// Initialize minio client object.
-	minioClient, _ = minio.New(endpoint, &minio.Options{
+	minioClient, err = minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure: useSSL,
 	})
-
+	return err
 }
 
 func makeBucket(bucketName string) error {
-
 	ctx := context.Background()
-
 	location := "default"
 
 	err := minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})
@@ -219,33 +290,54 @@ func makeBucket(bucketName string) error {
 		// Check to see if there is this bucket
 		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
 		if errBucketExists == nil && exists {
-			fmt.Println("We already own %s\n", bucketName)
+			fmt.Printf("We already own %s\n", bucketName)
 		} else {
 			fmt.Println(err)
 		}
 	} else {
-		fmt.Println("Successfully created %s\n", bucketName)
+		fmt.Printf("Successfully created %s\n", bucketName)
 	}
 
 	return err
 
 }
 
-func putObject(objectName, bucketName, filePath string) error {
+func putObject(bucketName, objectName, filePath string) error {
+	contentType := "application/text"
 
-	// contentType := "application/zip"
-	// ctx := context.Background()
+	t0 := time.Now()
+	// Upload the file with FPutObject
+	_, err := minioClient.FPutObject(context.Background(), bucketName, objectName, filePath, minio.PutObjectOptions{ContentType: contentType})
+	if err != nil {
+		fmt.Printf("FPutObject ERROR (%v): bucket= %s, file = %s, path = %s\n", err, bucketName, objectName, filePath)
+		return err
+	}
+	t1 := time.Now()
+	fmt.Printf("FPutObject: Successfully uploaded %s in %v\n", objectName, t1.Sub(t0))
 
-	// Upload the zip file with FPutObject
-	// fmt.Println("Successfully uploaded %s of size %d\n", objectName, n)
-
-	return nil
-
+	return err
 }
+
+func getObject(bucketName, objectName, filePath string) error {
+	t0 := time.Now()
+	// Upload the file with FGetObject
+	err := minioClient.FGetObject(context.Background(), bucketName, objectName, filePath, minio.GetObjectOptions{})
+	if err != nil {
+		fmt.Printf("FGetObject ERROR (%v): bucket= %s, file = %s, path = %s\n", err, bucketName, objectName, filePath)
+		return err
+	}
+	t1 := time.Now()
+	fmt.Printf("FGetObject: Successfully downloaded %s in %v\n", objectName, t1.Sub(t0))
+
+	return err
+}
+
 func main() {
 	var bucket, key, mqttUrl string
 	var minioTout time.Duration
+	var err error = nil
 
+	// Initialize some local variables
 	flag.StringVar(&bucket, "data", "", "Bucket name.")
 	flag.StringVar(&key, "key", "", "Object key name.")
 	flag.DurationVar(&minioTout, "duration", 0, "Upload timeout.")
@@ -255,16 +347,26 @@ func main() {
 	initSignalHandle()
 	fmt.Println("gRPC server application")
 
-	// // Initialize minio client
-	// minioClient, minioCtx = initializeMinio(minioTout)
-	// createBucket(minioClient, "data1")
-
 	// Initialize minio client
-	initMinioClient()
+	for {
+		err = initMinioClient()
+		if err != nil {
+			time.Sleep(1 * time.Second)
+		} else {
+			break
+		}
+	}
 	makeBucket("data1")
 
 	// Initialize mqtt client
-	mqttClient = mqttConnect("pub", mqttUrl)
+	for {
+		mqttClient, err = mqttConnect("pub", mqttUrl)
+		if err != nil {
+			time.Sleep(1 * time.Second)
+		} else {
+			break
+		}
+	}
 	// Initialize gRPC interface
 	startGrpcServer()
 }
