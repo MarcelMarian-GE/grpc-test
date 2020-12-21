@@ -24,18 +24,13 @@ services:
             - predix-edge-broker_net
         command: ["/testGrpcServer"]
     grpc-client-app:
-        deploy:
-            resources:
-                limits:
-                    cpus: '0.20'
-                    memory: 150M
         image: "testgrpc"
         # depends_on:
         #     - "grpc-server-app"
         deploy:
             resources:
                 limits:
-                    cpus: '0.5'
+                    cpus: '0.2'
                     memory: 50M
         networks:
             - predix-edge-broker_net
