@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	context "context"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -14,10 +15,25 @@ import (
 	grpcInterface "testgrpc.com/grpcservice"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
-func startGrpcClient() (*grpc.ClientConn, error) {
-	opts := grpc.WithInsecure()
+func startGrpcClient(sec int) (*grpc.ClientConn, error) {
+	var opts grpc.DialOption
+	if sec == 0 {
+		// No security
+		opts = grpc.WithInsecure()
+		log.Printf("Connected to the server app NO SECURITY\n")
+	} else {
+		// Self signed cetificate based security
+		creds, err := credentials.NewClientTLSFromFile("service.pem", "")
+		if err != nil {
+			log.Println(err)
+		}
+		opts = grpc.WithTransportCredentials(creds)
+		log.Printf("Connected to the server app with a self signed certificate\n")
+	}
+
 	conn, err := grpc.Dial("grpc-server-app:50051", opts)
 	if err != nil {
 		log.Println(err)
@@ -43,7 +59,7 @@ func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, 
 			log.Println(err)
 		}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	stream, err := client.PutFile(ctx)
 	if err != nil {
@@ -73,7 +89,8 @@ func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, 
 	t1 := time.Now()
 	reply, err := stream.CloseAndRecv()
 	if err != nil {
-		log.Fatalf("%v.CloseAndRecv() got error %v, want %v", stream, err, nil)
+		log.Printf("%v.CloseAndRecv() got error %v, want %v\n", stream, err, nil)
+		return
 	}
 	reply.Filename = destFilename
 	reply.BytesTransfered = int32(fileLen)
@@ -83,7 +100,7 @@ func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, 
 func runGrpcFileGet(client grpcInterface.GrpcServiceClient, srcFilename string, destFilename string) {
 	var req grpcInterface.FileProgress
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	req.Filename = srcFilename
@@ -156,6 +173,8 @@ func initSignalHandle() {
 }
 
 func main() {
+	// Initialize some local variables
+	security := flag.Int("sec", 1, "Security flag.")
 	testFilename := "test.txt"
 	remoteFilename := "test.log"
 	var conn *grpc.ClientConn = nil
@@ -167,14 +186,14 @@ func main() {
 	time.Sleep(5 * time.Second)
 	// gRPC client initialization
 	for {
-		conn, err = startGrpcClient()
+		conn, err = startGrpcClient(*security)
 		if err != nil {
 			time.Sleep(1 * time.Second)
 		} else {
-			log.Printf("Connected to the server app\n")
 			break
 		}
 	}
+	// Client shutdown
 	defer shutdownCli(conn)
 
 	startRequest := grpcInterface.StartRequest{Message: "Start!"}
@@ -182,7 +201,7 @@ func main() {
 	cli := grpcInterface.NewGrpcServiceClient(conn)
 	var j int32 = 0
 	// Create a test file
-	createTestFile(testFilename, 300000)
+	createTestFile(testFilename, 10000000)
 	// gRPC client testing loop
 	for {
 		switch j % 4 {

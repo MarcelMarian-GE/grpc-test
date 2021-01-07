@@ -25,13 +25,14 @@ services:
         command: ["/testGrpcServer"]
     grpc-client-app:
         image: "testgrpc"
-        # depends_on:
-        #     - "grpc-server-app"
+        depends_on:
+            - "grpc-server-app"
+            - "minio1"
         deploy:
             resources:
                 limits:
                     cpus: '0.2'
-                    memory: 50M
+                    memory: 150M
         networks:
             - predix-edge-broker_net
         command: ["/testGrpcClient"]

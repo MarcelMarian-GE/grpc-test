@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	grpcCredentials "google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 	proto "google.golang.org/protobuf/proto"
 
@@ -24,7 +25,7 @@ import (
 	mqttInterface "testgrpc.com/mqttapi"
 
 	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	minioCredentials "github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 var _ = proto.Marshal
@@ -232,13 +233,24 @@ func (s *GrpcServiceServer) GetFile(req *grpcInterface.FileProgress, stream grpc
 	return nil
 }
 
-func startGrpcServer() {
+func startGrpcServer(sec int) {
 	listener, err := net.Listen("tcp", "grpc-server-app:50051")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	server := GrpcServiceServer{}
 	opts := []grpc.ServerOption{}
+
+	if sec != 0 {
+		// Use the self signed certificate and key for server initialization
+		creds, err := grpcCredentials.NewServerTLSFromFile("service.pem", "service.key")
+		if err != nil {
+			log.Fatalf("failed to setup TLS with local files (cert and key)", "error", err)
+			return
+		}
+		opts = append(opts, grpc.Creds(creds))
+	}
+
 	grpcServer := grpc.NewServer(opts...)
 	grpcInterface.RegisterGrpcServiceServer(grpcServer, &server)
 
@@ -275,7 +287,7 @@ func initMinioClient() error {
 	var err error = nil
 	// Initialize minio client object.
 	minioClient, err = minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Creds:  minioCredentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure: useSSL,
 	})
 	return err
@@ -313,7 +325,7 @@ func putObject(bucketName, objectName, filePath string) error {
 		return err
 	}
 	t1 := time.Now()
-	fmt.Printf("FPutObject: Successfully uploaded %s in %v\n", objectName, t1.Sub(t0))
+	fmt.Printf("FPutObject: Successfully stored %s in %v\n", objectName, t1.Sub(t0))
 
 	return err
 }
@@ -327,7 +339,7 @@ func getObject(bucketName, objectName, filePath string) error {
 		return err
 	}
 	t1 := time.Now()
-	fmt.Printf("FGetObject: Successfully downloaded %s in %v\n", objectName, t1.Sub(t0))
+	fmt.Printf("FGetObject: Successfully retrieved %s in %v\n", objectName, t1.Sub(t0))
 
 	return err
 }
@@ -338,6 +350,7 @@ func main() {
 	var err error = nil
 
 	// Initialize some local variables
+	security := flag.Int("sec", 1, "Security flag.")
 	flag.StringVar(&bucket, "data", "", "Bucket name.")
 	flag.StringVar(&key, "key", "", "Object key name.")
 	flag.DurationVar(&minioTout, "duration", 0, "Upload timeout.")
@@ -368,5 +381,5 @@ func main() {
 		}
 	}
 	// Initialize gRPC interface
-	startGrpcServer()
+	startGrpcServer(*security)
 }
