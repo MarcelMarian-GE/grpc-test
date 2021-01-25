@@ -47,6 +47,58 @@ func shutdownCli(conn *grpc.ClientConn) {
 	}
 }
 
+func runGrpcDeployApp(client grpcInterface.GrpcServiceClient, appName string, srcFilename string, destFilename string) {
+	// Check if file exists
+	f, err := os.Open(srcFilename)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() {
+		if err = f.Close(); err != nil {
+			log.Println(err)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	stream, err := client.DeployApp(ctx)
+	if err != nil {
+		log.Fatalf("%v.DeployApp(_) = _, %v", client, err)
+	}
+	// File reading and streaming
+	r := bufio.NewReader(f)
+	b := make([]byte, 1024)
+	fileLen := 0
+	t0 := time.Now()
+	for {
+		var chunk grpcInterface.AppChunk
+		chunk.Appname = appName
+		chunk.Filename = destFilename
+		n, err := r.Read(b)
+		if err != nil {
+			break
+		} else {
+			chunk.Packet = b[:n]
+			chunk.ByteCount = int32(n)
+			if err := stream.Send(&chunk); err != nil {
+				log.Fatalf("%v.Send(%v) = %v", stream, chunk, err)
+				break
+			}
+			fileLen += n
+		}
+	}
+	t1 := time.Now()
+	log.Printf("Response: DeployApp - appname=\"%s\", filename=\"%s\", len = %d, took %v", appName, destFilename, fileLen, t1.Sub(t0))
+
+	reply, err := stream.CloseAndRecv()
+	if err != nil {
+		log.Printf("%v.CloseAndRecv() got error %v, want %v\n", stream, err, nil)
+		return
+	}
+	reply.Filename = destFilename
+	reply.BytesTransfered = int32(fileLen)
+}
+
 func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, destFilename string) {
 	// Check if file exists
 	f, err := os.Open(srcFilename)
@@ -87,6 +139,8 @@ func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, 
 		}
 	}
 	t1 := time.Now()
+	log.Printf("Response: FilePut - filename=\"%s\", len = %d, took %v", destFilename, fileLen, t1.Sub(t0))
+
 	reply, err := stream.CloseAndRecv()
 	if err != nil {
 		log.Printf("%v.CloseAndRecv() got error %v, want %v\n", stream, err, nil)
@@ -94,7 +148,6 @@ func runGrpcFilePut(client grpcInterface.GrpcServiceClient, srcFilename string, 
 	}
 	reply.Filename = destFilename
 	reply.BytesTransfered = int32(fileLen)
-	log.Printf("Response: FilePut - filename=\"%s\", len = %d, took %v", reply.Filename, reply.BytesTransfered, t1.Sub(t0))
 }
 
 func runGrpcFileGet(client grpcInterface.GrpcServiceClient, srcFilename string, destFilename string) {
@@ -196,32 +249,34 @@ func main() {
 	// Client shutdown
 	defer shutdownCli(conn)
 
-	startRequest := grpcInterface.StartRequest{Message: "Start!"}
-	stopRequest := grpcInterface.StopRequest{Id: "Stop!"}
+	startAppRequest := grpcInterface.StartAppRequest{Message: "StartApp!"}
+	stopAppRequest := grpcInterface.StopAppRequest{Id: "StopApp!"}
 	cli := grpcInterface.NewGrpcServiceClient(conn)
 	var j int32 = 0
 	// Create a test file
-	createTestFile(testFilename, 10000000)
+	createTestFile(testFilename, 1000000)
 	// gRPC client testing loop
 	for {
-		switch j % 4 {
+		switch j % 5 {
 		case 0:
-			// Sending Start command
-			startResp, err := cli.Start(context.Background(), &startRequest)
+			// Sending StartApp command
+			startResp, err := cli.StartApp(context.Background(), &startAppRequest)
 			if err != nil {
-				log.Fatalf("Error when calling Start function: %s", err)
+				log.Fatalf("Error when calling StartApp function: %s", err)
 			}
 			log.Printf("Response: %s", startResp.Result)
 		case 1:
-			// Sending Stop command
-			stopResp, err := cli.Stop(context.Background(), &stopRequest)
+			// Sending StopApp command
+			stopResp, err := cli.StopApp(context.Background(), &stopAppRequest)
 			if err != nil {
-				log.Fatalf("Error when calling Start function: %s", err)
+				log.Fatalf("Error when calling StopApp function: %s", err)
 			}
 			log.Printf("Response: %s", stopResp.Result)
 		case 2:
-			runGrpcFilePut(cli, testFilename, remoteFilename)
+			runGrpcDeployApp(cli, "MyAppName", testFilename, remoteFilename)
 		case 3:
+			runGrpcFilePut(cli, testFilename, remoteFilename)
+		case 4:
 			runGrpcFileGet(cli, remoteFilename, remoteFilename)
 		default:
 			log.Printf("Unknown command")

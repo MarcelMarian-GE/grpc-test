@@ -62,16 +62,15 @@ func check(e error) {
 
 var seqNo int32 = 0
 
-func (s *GrpcServiceServer) Start(ctx context.Context, req *grpcInterface.StartRequest) (*grpcInterface.StartResponse, error) {
+func (s *GrpcServiceServer) StartApp(ctx context.Context, req *grpcInterface.StartAppRequest) (*grpcInterface.StartAppResponse, error) {
 	// Test protobuf marshaling
-	startMsg := &mqttInterface.StartMsg{
-		Startparam1: "Start Parameter_1",
-		Startparam2: 1,
+	startAppMsg := &mqttInterface.StartAppMsg{
+		AppName: "MyAppName",
 	}
-	params, _ := proto.Marshal(startMsg)
+	params, _ := proto.Marshal(startAppMsg)
 
 	mqttGenReq := &mqttInterface.GenericReqMsg{
-		Opcode: mqttInterface.EnumOpcode_START,
+		Opcode: mqttInterface.EnumOpcode_START_APP,
 		Seqno:  seqNo,
 		Params: params,
 	}
@@ -85,20 +84,20 @@ func (s *GrpcServiceServer) Start(ctx context.Context, req *grpcInterface.StartR
 	token.Wait()
 
 	seqNo++
-	log.Println("Start request processing: ", req.Message)
+	log.Println("StartApp request processing: ", req.Message)
 
-	return &grpcInterface.StartResponse{Result: "Start"}, nil
+	return &grpcInterface.StartAppResponse{Result: "StartApp"}, nil
 }
 
-func (s *GrpcServiceServer) Stop(ctx context.Context, req *grpcInterface.StopRequest) (*grpcInterface.StopResponse, error) {
+func (s *GrpcServiceServer) StopApp(ctx context.Context, req *grpcInterface.StopAppRequest) (*grpcInterface.StopAppResponse, error) {
 	// Test protobuf marshaling
-	stopMsg := &mqttInterface.StopMsg{
-		StopParam: 2,
+	stopAppMsg := &mqttInterface.StopAppMsg{
+		AppName: "MyAppName",
 	}
-	params, _ := proto.Marshal(stopMsg)
+	params, _ := proto.Marshal(stopAppMsg)
 
 	mqttGenReq := &mqttInterface.GenericReqMsg{
-		Opcode: mqttInterface.EnumOpcode_STOP,
+		Opcode: mqttInterface.EnumOpcode_STOP_APP,
 		Seqno:  seqNo,
 		Params: params,
 	}
@@ -112,9 +111,77 @@ func (s *GrpcServiceServer) Stop(ctx context.Context, req *grpcInterface.StopReq
 	token.Wait()
 
 	seqNo++
-	log.Println("Stop request processing: ", req.Id)
+	log.Println("StopApp request processing: ", req.Id)
 
-	return &grpcInterface.StopResponse{Result: "Stop"}, nil
+	return &grpcInterface.StopAppResponse{Result: "StopApp"}, nil
+}
+
+func (s *GrpcServiceServer) DeployApp(stream grpcInterface.GrpcService_DeployAppServer) error {
+	var resp grpcInterface.AppProgress
+	var fileLen int32
+	var f *os.File
+	var fileOpened bool = false
+
+	// Prepare a local file to save it
+	t0 := time.Now()
+	for {
+		chunk, err := stream.Recv()
+		if err != nil {
+			if err != io.EOF {
+				log.Println("DeployApp:", err)
+			}
+			break
+		}
+		resp.Appname = chunk.Appname
+		resp.Filename = chunk.Filename
+		if !fileOpened {
+			f, err = os.OpenFile(resp.Filename, os.O_CREATE|os.O_RDWR, 0644)
+			fileOpened = true
+		}
+		// Save the app image to a local file
+		if chunk.ByteCount != 0 {
+			chunk.Packet = chunk.Packet[:chunk.ByteCount]
+			if _, err := f.Write(chunk.Packet); err != nil {
+				log.Println(err)
+			}
+		} else {
+			// Close the file and exit
+			if err = f.Close(); err != nil {
+				log.Println(err)
+			}
+			log.Println("Closing file:", resp.Filename, fileLen)
+			break
+		}
+		fileLen += chunk.ByteCount
+	}
+	t1 := time.Now()
+	log.Printf("DeployApp: appname=\"%s\" filename=\"%s\", bytes = %d, took %v\n", resp.Appname, resp.Filename, fileLen, t1.Sub(t0))
+
+	putObject("data1", resp.Appname, resp.Filename)
+	resp.BytesTransfered = fileLen
+
+	deployAppMsg := &mqttInterface.DeployAppMsg{
+		AppName:  resp.Appname,
+		FileName: resp.Filename,
+	}
+	params, _ := proto.Marshal(deployAppMsg)
+
+	// Forward the notification over mqtt
+	mqttGenReq := &mqttInterface.GenericReqMsg{
+		Opcode: mqttInterface.EnumOpcode_DEPLOY_APP,
+		Seqno:  seqNo,
+		Params: params,
+	}
+	data, err := proto.Marshal(mqttGenReq)
+	if err != nil {
+		log.Println(err)
+	}
+	token := mqttClient.Publish("testTopic/1", 0, false, data)
+	token.Wait()
+
+	seqNo++
+
+	return stream.SendAndClose(&resp)
 }
 
 func (s *GrpcServiceServer) PutFile(stream grpcInterface.GrpcService_PutFileServer) error {
@@ -155,10 +222,10 @@ func (s *GrpcServiceServer) PutFile(stream grpcInterface.GrpcService_PutFileServ
 		fileLen += chunk.ByteCount
 	}
 	t1 := time.Now()
+	log.Printf("PutFile: filename=\"%s\", bytes = %d, took %v\n", resp.Filename, fileLen, t1.Sub(t0))
 
 	putObject("data1", resp.Filename, resp.Filename)
 	resp.BytesTransfered = fileLen
-	log.Printf("PutFile: filename=\"%s\", bytes = %d, took %v\n", resp.Filename, resp.BytesTransfered, t1.Sub(t0))
 
 	// Forward the notification over mqtt
 	mqttGenReq := &mqttInterface.GenericReqMsg{

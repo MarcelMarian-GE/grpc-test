@@ -5,10 +5,11 @@ option go_package = "testgrpc.com/mqttapi";
 
 // function/opcodes codes
 enum EnumOpcode {
-  START = 0;
-  STOP = 1;
-  PUTFILE = 2;
-  GETFILE = 3;
+  DEPLOY_APP = 0;
+  START_APP = 1;
+  STOP_APP = 2;
+  PUTFILE = 3;
+  GETFILE = 4;
 }
 
 // Generic API request
@@ -20,15 +21,20 @@ message GenericReqMsg {
 
 
 // Messages containing function arguments for specific opcodes
-// opcode = START
-message StartMsg {
-  string startparam1 = 1;
-  int32  startparam2 = 2;
+// opcode = START_APP
+message DeployAppMsg {
+  string appName = 1;
+  string fileName =2;
 }
 
-// opcode = STOP
-message StopMsg {
-  int32  stopParam = 1;
+// opcode = START_APP
+message StartAppMsg {
+  string appName = 1;
+}
+
+// opcode = STOP_APP
+message StopAppMsg {
+  string  appName = 1;
 }
 
 // opcode = SET

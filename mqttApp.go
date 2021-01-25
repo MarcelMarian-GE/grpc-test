@@ -35,22 +35,24 @@ var f mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
 		log.Println("Unmarshaling ERROR: ", err, data)
 	} else {
 		switch genericRecvMsg.Opcode {
-		case mqttInterface.EnumOpcode_START:
-			startRecvMsg := &mqttInterface.StartMsg{}
-			proto.Unmarshal(genericRecvMsg.Params, startRecvMsg)
+		case mqttInterface.EnumOpcode_START_APP:
+			startAppRecvMsg := &mqttInterface.StartAppMsg{}
+			proto.Unmarshal(genericRecvMsg.Params, startAppRecvMsg)
 			if err != nil {
 				log.Println("Unmarshaling ERROR: ", err, data)
 			} else {
-				fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno, startRecvMsg.Startparam1, startRecvMsg.Startparam2)
+				fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno, startAppRecvMsg.AppName)
 			}
-		case mqttInterface.EnumOpcode_STOP:
-			stopRecvMsg := &mqttInterface.StopMsg{}
-			proto.Unmarshal(genericRecvMsg.Params, stopRecvMsg)
+		case mqttInterface.EnumOpcode_STOP_APP:
+			stopAppRecvMsg := &mqttInterface.StopAppMsg{}
+			proto.Unmarshal(genericRecvMsg.Params, stopAppRecvMsg)
 			if err != nil {
 				log.Println("Unmarshaling ERROR: ", err, data)
 			} else {
-				fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno, stopRecvMsg.StopParam)
+				fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno, stopAppRecvMsg.AppName)
 			}
+		case mqttInterface.EnumOpcode_DEPLOY_APP:
+			fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno)
 		case mqttInterface.EnumOpcode_PUTFILE:
 			fmt.Println("Message:", genericRecvMsg.Opcode, genericRecvMsg.Seqno)
 		case mqttInterface.EnumOpcode_GETFILE:

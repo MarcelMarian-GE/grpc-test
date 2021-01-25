@@ -5,26 +5,40 @@ package grpcservice;
 option go_package = "testgrpc.com/grpcservice";
 
 service GrpcService {
-  rpc Start (StartRequest) returns (StartResponse) {}
-  rpc Stop (StopRequest) returns (StopResponse) {}
+  rpc DeployApp(stream AppChunk) returns (AppProgress) {}
+  rpc StartApp (StartAppRequest) returns (StartAppResponse) {}
+  rpc StopApp (StopAppRequest) returns (StopAppResponse) {}
   rpc PutFile(stream FileChunk) returns (FileProgress) {}
   rpc GetFile(FileProgress) returns (stream FileChunk) {}
 }
 
-message StartRequest {
+message StartAppRequest {
 	string message = 1;
 }
 
-message StartResponse {
+message StartAppResponse {
 	string result = 1;
 }
 
-message StopRequest {
+message StopAppRequest {
 	string id = 1;
 }
-  
-message StopResponse {
+ 
+message StopAppResponse {
 	string result = 1;
+}
+
+message AppChunk {
+	string appname = 1;
+	string filename = 2;
+	bytes packet = 3;
+	int32 byteCount = 4;
+}
+
+message AppProgress {
+	string appname = 1;
+	string filename = 2;
+	int32 bytesTransfered = 3;
 }
 
 message FileChunk {
