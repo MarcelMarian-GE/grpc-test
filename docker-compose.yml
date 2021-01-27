@@ -14,7 +14,7 @@ services:
         #     config: "/config/config.json"
         depends_on:
             - "predix-edge-broker"
-            - "minio1"
+            - "sc-minio"
         deploy:
             resources:
                 limits:
@@ -27,7 +27,7 @@ services:
         image: "testgrpc"
         depends_on:
             - "grpc-server-app"
-            - "minio1"
+            - "sc-minio"
         deploy:
             resources:
                 limits:
@@ -48,7 +48,7 @@ services:
         networks:
             - predix-edge-broker_net
         command: ["/mqttApp"]
-    minio1:
+    sc-minio:
         image: minio/minio:RELEASE.2020-12-03T05-49-24Z
         deploy:
             resources:

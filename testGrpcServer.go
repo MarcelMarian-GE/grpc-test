@@ -35,7 +35,7 @@ type GrpcServiceServer struct {
 }
 
 var mqttClient mqtt.Client
-var endpoint = "minio1:9000"
+var endpoint = "sc-minio:9000"
 var accessKeyID = "minio"
 
 // var secretAccessKey = "cFV^+7/85KFr-ws]"
