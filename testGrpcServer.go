@@ -421,7 +421,7 @@ func main() {
 	flag.StringVar(&bucket, "data", "", "Bucket name.")
 	flag.StringVar(&key, "key", "", "Object key name.")
 	flag.DurationVar(&minioTout, "duration", 0, "Upload timeout.")
-	flag.StringVar(&mqttUrl, "mqttUrl", "mqtt://predix-edge-broker:1883/testTopic", "MQTT broker URL")
+	flag.StringVar(&mqttUrl, "mqttUrl", "mqtt://docker-edge-broker:1883/testTopic", "MQTT broker URL")
 	flag.Parse()
 
 	initSignalHandle()

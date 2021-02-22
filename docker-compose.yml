@@ -13,7 +13,7 @@ services:
         # environment:
         #     config: "/config/config.json"
         depends_on:
-            - "predix-edge-broker"
+            - "docker-edge-broker"
             - "sc-minio"
         deploy:
             resources:
@@ -21,7 +21,7 @@ services:
                     cpus: '0.20'
                     memory: 150M
         networks:
-            - predix-edge-broker_net
+            - docker-edge-broker_net
         command: ["/testGrpcServer"]
     grpc-client-app:
         image: "testgrpc"
@@ -34,7 +34,7 @@ services:
                     cpus: '0.2'
                     memory: 150M
         networks:
-            - predix-edge-broker_net
+            - docker-edge-broker_net
         command: ["/testGrpcClient"]
     mqtt-app:
         image: "testgrpc"
@@ -46,7 +46,7 @@ services:
                     cpus: '0.1'
                     memory: 50M
         networks:
-            - predix-edge-broker_net
+            - docker-edge-broker_net
         command: ["/mqttApp"]
     sc-minio:
         image: minio/minio:RELEASE.2020-12-03T05-49-24Z
@@ -63,13 +63,13 @@ services:
         expose:
             - "9000"
         networks:
-            - predix-edge-broker_net
+            - docker-edge-broker_net
         command: server /data
-    predix-edge-broker:
+    docker-edge-broker:
         image: "toke/mosquitto"
         networks:
-            - predix-edge-broker_net
+            - docker-edge-broker_net
 
 networks:
-  predix-edge-broker_net:
+  docker-edge-broker_net:
     external: true
